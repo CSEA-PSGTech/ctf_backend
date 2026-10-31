@@ -5,8 +5,6 @@ const Question = require("../models/question");
 const categoryModel = require("../models/category");
 const { emitLeaderboardUpdate, emitNewSolve } = require("./leaderController");
 
-
-
 const getQuestion = async (req, res) => {
   const { question_id } = req.body;
   
@@ -22,7 +20,7 @@ const getQuestion = async (req, res) => {
     // Find question but exclude the answer field for security
     const question = await Question.findById(question_id)
       .populate('categoryId', 'name')
-      .select('title description hint link point year solved_count createdAt difficulty categoryId') // Exclude 'answer' field
+      .select('title description hint link point year solved_count createdAt categoryId level') // Exclude 'answer' field
       .lean();
 
     console.log("Fetched Question:", question); // Debug log
@@ -33,8 +31,8 @@ const getQuestion = async (req, res) => {
         message: "Question not found",
       });
     }
-    data=question;
-    data.hint=question.hint;
+    const data = question;
+    data.hint = question.hint;
 
     res.status(200).json({
       success: true,
@@ -48,12 +46,11 @@ const getQuestion = async (req, res) => {
       error: error.message,
     });
   }
-}
+};
 
 const fetchCategories = async (req, res) => {
   try {
-    const userDifficulty = req.user.difficulty;
-    const categories = await categoryModel.find({ difficulty: userDifficulty });
+    const categories = await categoryModel.find();
     res.status(200).json({
       success: true,
       data: categories,
@@ -68,11 +65,9 @@ const fetchCategories = async (req, res) => {
   }
 };
 
-
 const fetchQuestions = async (req, res) => {
   try {
-    const { difficulty } = req.user; // Get user's difficulty from JWT token
-    const { categoryId } = req.body;
+    const { categoryId, level } = req.body;
     
     if (!categoryId) {
       return res.status(400).json({
@@ -89,24 +84,18 @@ const fetchQuestions = async (req, res) => {
         message: "Category not found",
       });
     }
-    
-    // Validate user has access to this category's difficulty level
-    if (categoryExists.difficulty !== difficulty) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied: This category is not available for your difficulty level",
-      });
-    }
 
-    // Filter questions based only on difficulty and category
+    // Filter questions based on category and optional level (easy / medium)
     const questionsQuery = {
-      categoryId: categoryId,
-      difficulty: difficulty // Filter by user's difficulty level only
+      categoryId: categoryId
     };
+    if (level && ['easy', 'medium'].includes(level.toLowerCase())) {
+      questionsQuery.level = level.toLowerCase();
+    }
 
     const questions = await Question.find(questionsQuery)
       .populate('categoryId', 'name')
-      .select('title description hint point year solved_count createdAt difficulty') // Removed 'answer' for security
+      .select('title description hint point year solved_count createdAt level') // Removed 'answer' for security
       .sort({ point: -1, createdAt: -1 }) // Sort by points descending, then by newest
       .lean(); // Use lean() for better performance
 
@@ -115,7 +104,6 @@ const fetchQuestions = async (req, res) => {
       data: {
         questions: questions,
         category: categoryExists.name,
-        userDifficulty: difficulty,
         totalQuestions: questions.length
       },
       message: "Questions fetched successfully",
@@ -127,13 +115,12 @@ const fetchQuestions = async (req, res) => {
       error: error.message,
     });
   }
-}
+};
 
 const fetchSolvedQuestions = async (req, res) => {
   try {
     const userId = req.user.id; // Get user ID from JWT token
-    const { difficulty } = req.user; // Get user's difficulty from JWT token
-    const { categoryId } = req.body;
+    const { categoryId, level } = req.body;
 
     // Validation
     if (!categoryId) {
@@ -151,13 +138,10 @@ const fetchSolvedQuestions = async (req, res) => {
         message: "Category not found",
       });
     }
-    
-    // Validate user has access to this category's difficulty level
-    if (categoryExists.difficulty !== difficulty) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied: This category is not available for your difficulty level",
-      });
+
+    const questionMatch = { categoryId: categoryId };
+    if (level && ['easy', 'medium'].includes(level.toLowerCase())) {
+      questionMatch.level = level.toLowerCase();
     }
 
     // Find all correctly solved submissions by this user in the specific category
@@ -167,10 +151,7 @@ const fetchSolvedQuestions = async (req, res) => {
     })
     .populate({
       path: 'question_id',
-      match: { 
-        categoryId: categoryId,
-        difficulty: difficulty 
-      },
+      match: questionMatch,
       populate: {
         path: 'categoryId',
         select: 'name'
@@ -179,17 +160,17 @@ const fetchSolvedQuestions = async (req, res) => {
     .sort({ submitted_at: -1 }) // Most recent first
     .lean();
 
-    // Filter out submissions where question_id is null (didn't match the category/difficulty filter)
+    // Filter out submissions where question_id is null (didn't match the category filter)
     const validSolvedSubmissions = solvedSubmissions.filter(submission => submission.question_id);
 
-    // Extract question details with category and difficulty info
+    // Extract question details
     const solvedQuestions = validSolvedSubmissions.map(submission => ({
       _id: submission.question_id._id,
       title: submission.question_id.title,
       description: submission.question_id.description,
       point: submission.question_id.point,
       year: submission.question_id.year,
-      difficulty: submission.question_id.difficulty,
+      level: submission.question_id.level || 'easy',
       solved_count: submission.question_id.solved_count,
       categoryId: submission.question_id.categoryId,
       solved_at: submission.submitted_at,
@@ -201,7 +182,6 @@ const fetchSolvedQuestions = async (req, res) => {
       data: {
         questions: solvedQuestions,
         category: categoryExists.name,
-        userDifficulty: difficulty,
         totalSolved: solvedQuestions.length
       },
       message: "Solved questions fetched successfully",
@@ -262,11 +242,11 @@ const isSolvedQuestion = async (req, res) => {
     });
   }
 };
+
 const fetchIncorrectSubmissions = async (req, res) => {
   try {
     const userId = req.user.id; // Get user ID from JWT token
-    const { difficulty } = req.user; // Get user's difficulty from JWT token
-    const { categoryId } = req.body;
+    const { categoryId, level } = req.body;
 
     // Validation
     if (!categoryId) {
@@ -284,24 +264,18 @@ const fetchIncorrectSubmissions = async (req, res) => {
         message: "Category not found",
       });
     }
-    
-    // Validate user has access to this category's difficulty level
-    if (categoryExists.difficulty !== difficulty) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied: This category is not available for your difficulty level",
-      });
+
+    const questionMatch = { categoryId: categoryId };
+    if (level && ['easy', 'medium'].includes(level.toLowerCase())) {
+      questionMatch.level = level.toLowerCase();
     }
 
-    // Get all questions in this category and difficulty
-    const allQuestions = await Question.find({
-      categoryId: categoryId,
-      difficulty: difficulty
-    })
-    .populate('categoryId', 'name')
-    .select('title description hint point year solved_count createdAt difficulty')
-    .sort({ point: -1, createdAt: -1 })
-    .lean();
+    // Get all questions in this category and level
+    const allQuestions = await Question.find(questionMatch)
+      .populate('categoryId', 'name')
+      .select('title description hint point year solved_count createdAt level')
+      .sort({ point: -1, createdAt: -1 })
+      .lean();
 
     // Get all correctly solved questions by this user in this category
     const solvedQuestions = await Submission.find({
@@ -310,10 +284,7 @@ const fetchIncorrectSubmissions = async (req, res) => {
     })
     .populate({
       path: 'question_id',
-      match: {
-        categoryId: categoryId,
-        difficulty: difficulty
-      }
+      match: questionMatch
     })
     .lean();
 
@@ -331,10 +302,7 @@ const fetchIncorrectSubmissions = async (req, res) => {
     })
     .populate({
       path: 'question_id',
-      match: { 
-        categoryId: categoryId,
-        difficulty: difficulty 
-      }
+      match: questionMatch
     })
     .lean();
 
@@ -363,7 +331,6 @@ const fetchIncorrectSubmissions = async (req, res) => {
       data: {
         unsolvedQuestions: unsolvedQuestions, // Combined list of incorrectly attempted + never attempted questions
         category: categoryExists.name,
-        userDifficulty: difficulty,
         totalUnsolved: unsolvedQuestions.length
       },
       message: "Unsolved questions (incorrect + never attempted) fetched successfully",
@@ -425,13 +392,17 @@ const handleSubmission = async (req, res) => {
         throw new Error("You have already solved this question.");
       }
 
-      // 2. Check if the submitted answer is correct
-      if (question.answer !== submitted_answer) {
+      // 2. Check if the submitted answer is correct (trimmed & case-insensitive)
+      const cleanStoredAnswer = (question.answer || "").trim().toLowerCase();
+      const cleanSubmittedAnswer = (submitted_answer || "").trim().toLowerCase();
+
+      if (cleanStoredAnswer !== cleanSubmittedAnswer) {
         // Log the incorrect attempt
         const incorrectLog = new Submission({
           user_id: user._id,
           question_id: question._id,
           iscorrect: false,
+          submitted_answer: (submitted_answer || "").trim(),
           submitted_at: new Date(),
         });
         await incorrectLog.save({ session });
@@ -446,6 +417,8 @@ const handleSubmission = async (req, res) => {
 
         // Update the user's score and last submission timestamp
         user.point += pointsAwarded;
+      // Increment solved count for correct answer
+      user.solved_no = (user.solved_no || 0) + 1;
         user.lastSubmissionAt = new Date();
 
         // Dynamically reduce the question's points
@@ -457,7 +430,7 @@ const handleSubmission = async (req, res) => {
           user_id: user._id,
           question_id: question._id,
           iscorrect: true,
-          submitted_answer: submitted_answer,
+          submitted_answer: (submitted_answer || "").trim(),
           submitted_at: new Date(),
         });
 

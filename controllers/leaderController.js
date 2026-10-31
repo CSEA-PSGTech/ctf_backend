@@ -12,7 +12,7 @@ const initializeSocket = (socketIo) => {
 // Get current leaderboard (filtered by difficulty)
 const getLeaderboard = async (req, res) => {
   try {
-    const { difficulty } = req.user; // Get difficulty from query params
+    const difficulty = (req.query.difficulty && ['beginner', 'intermediate'].includes(req.query.difficulty.toLowerCase())) ? req.query.difficulty.toLowerCase() : req.user?.difficulty;
 
     // Validate difficulty
     if (!difficulty || !['beginner', 'intermediate'].includes(difficulty)) {
@@ -101,7 +101,7 @@ const emitLeaderboardUpdate = async (updatedUserId = null) => {
 
   try {
     // Fetch and emit BEGINNER leaderboard
-    const beginnerLeaderboard = await User.find({ field: 'user', difficulty: user.difficulty })
+    const beginnerLeaderboard = await User.find({ field: 'user', difficulty: 'beginner' })
       .select('team_name point solved_no difficulty createdAt')
       .sort({ point: -1, solved_no: -1, createdAt: 1 });
 

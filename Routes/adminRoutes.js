@@ -343,4 +343,11 @@ router.patch('/questions/:id', verifyToken, isAdmin, adminController.updateQuest
  */
 router.delete('/questions/:id', verifyToken, isAdmin, adminController.deleteQuestion);
 
+// ─── User Management Routes (Admin only) ────────────────────
+router.get('/users', verifyToken, isAdmin, adminController.getUsers);
+router.get('/users/:id', verifyToken, isAdmin, adminController.getUserById);
+router.patch('/users/:id', verifyToken, isAdmin, adminController.updateUser);
+router.delete('/users/:id', verifyToken, isAdmin, adminController.deleteUser);
+router.patch('/users/:id/reset-score', verifyToken, isAdmin, adminController.resetUserScore);
+
 module.exports = router;

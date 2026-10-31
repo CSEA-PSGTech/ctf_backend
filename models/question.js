@@ -7,6 +7,7 @@ const questionSchema = new mongoose.Schema({
     trim: true
   },
   categoryId: {
+    
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
     required: true
@@ -43,10 +44,15 @@ const questionSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  level: {
+    type: String,
+    enum: ['easy', 'medium'],
+    default: 'easy'
+  },
   difficulty: {
     type: String,
     enum: ['beginner', 'intermediate'],
-    required: true
+    required: false
   }
 }, {
   timestamps: true

@@ -9,7 +9,7 @@ const categorySchema = new mongoose.Schema({
   },
   difficulty: {
     type: String,
-    required: true,
+    required: false,
     enum: ['beginner', 'intermediate'],
     trim: true
   }

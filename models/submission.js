@@ -8,7 +8,7 @@ const submissionSchema = new mongoose.Schema({
   },
   question_id: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Question',
+    ref: 'question',
     required: true
   },
   iscorrect: {
