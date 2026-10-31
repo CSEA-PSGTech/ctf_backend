@@ -6,8 +6,7 @@ const Question = require('../models/question');
 const User = require('../models/user');
 
 const getCategories = asyncHandler(async (req, res) => {
-  userDifficulty = req.user.difficulty;
-  const categories = await Category.find({ difficulty: userDifficulty });
+  const categories = await Category.find();
   res.status(200).json(new ApiResponse(200, categories, "Categories fetched"));
 });
 
@@ -17,11 +16,7 @@ const createCategory = asyncHandler(async (req, res) => {
     return res.status(400).json(new ApiResponse(400, null, "Category name required"));
   }
 
-  if (!difficulty) {
-    return res.status(400).json(new ApiResponse(400, null, "Category difficulty required"));
-  }
-
-  if (!['beginner', 'intermediate'].includes(difficulty)) {
+  if (difficulty && !['beginner', 'intermediate'].includes(difficulty)) {
     return res.status(400).json(new ApiResponse(400, null, "Difficulty must be either 'beginner' or 'intermediate'"));
   }
 
@@ -30,7 +25,7 @@ const createCategory = asyncHandler(async (req, res) => {
     return res.status(400).json(new ApiResponse(400, null, "Category already exists"));
   }
 
-  category = await Category.create({ name: name.trim(), difficulty });
+  category = await Category.create({ name: name.trim(), ...(difficulty && { difficulty }) });
   res.status(201).json(new ApiResponse(201, category, "Category created"));
 });
 
@@ -100,18 +95,28 @@ const getQuestions = asyncHandler(async (req, res) => {
 });
 
 const createQuestion = asyncHandler(async (req, res) => {
-  const { category, title, description, hint, answer, point, year, difficulty } = req.body;
+  const { category, title, description, hint, answer, point, year, level, difficulty } = req.body;
 
-  if (!category || !title || !description || !answer || !point || !year || !difficulty) {
+  if (!category || !title || !description || !answer || !point || !year) {
     return res.status(400).json({
       statusCode: 400,
-      message: "All fields are required (category, title, description, answer, point, year, difficulty)",
+      message: "All fields are required (category, title, description, answer, point, year)",
       success: false
     });
   }
 
-  // Validate difficulty
-  if (!['beginner', 'intermediate'].includes(difficulty)) {
+  // Validate level if provided
+  if (level && !['easy', 'medium'].includes(level.toLowerCase())) {
+    return res.status(400).json({
+      statusCode: 400,
+      message: "Level must be either 'easy' or 'medium'",
+      success: false
+    });
+  }
+  const questionLevel = level ? level.toLowerCase() : 'easy';
+
+  // Validate difficulty if provided
+  if (difficulty && !['beginner', 'intermediate'].includes(difficulty)) {
     return res.status(400).json({
       statusCode: 400,
       message: "Difficulty must be either 'beginner' or 'intermediate'",
@@ -131,6 +136,7 @@ const createQuestion = asyncHandler(async (req, res) => {
 
   const question = await Question.create({
     ...req.body,
+    level: questionLevel,
     categoryId: cat._id
   });
 
@@ -139,9 +145,20 @@ const createQuestion = asyncHandler(async (req, res) => {
 
 const updateQuestion = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { category, difficulty } = req.body;
+  const { category, level, difficulty } = req.body;
 
   let updateData = { ...req.body };
+
+  if (level) {
+    if (!['easy', 'medium'].includes(level.toLowerCase())) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "Level must be either 'easy' or 'medium'",
+        success: false
+      });
+    }
+    updateData.level = level.toLowerCase();
+  }
 
   // Validate difficulty if provided
   if (difficulty && !['beginner', 'intermediate'].includes(difficulty)) {
@@ -183,7 +200,96 @@ const deleteQuestion = asyncHandler(async (req, res) => {
 
 const isAdmin = (req, res) => {
   res.status(200).json({ flag: true });
-}
+};
+
+// ─── User CRUD (Admin) ───────────────────────────────────────
+
+const getUsers = asyncHandler(async (req, res) => {
+  const users = await User.find({ field: 'user' })
+    .select('-password')
+    .sort({ createdAt: -1 });
+  res.status(200).json(new ApiResponse(200, users, "Users fetched"));
+});
+
+const getUserById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const user = await User.findById(id).select('-password');
+  if (!user) {
+    return res.status(404).json(new ApiResponse(404, null, "User not found"));
+  }
+  res.status(200).json(new ApiResponse(200, user, "User fetched"));
+});
+
+const updateUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { email, team_name, year, difficulty, point, solved_no } = req.body;
+
+  const updateData = {};
+  if (email !== undefined) updateData.email = email;
+  if (team_name !== undefined) updateData.team_name = team_name;
+  if (year !== undefined) updateData.year = parseInt(year);
+  if (point !== undefined) updateData.point = parseInt(point);
+  if (solved_no !== undefined) updateData.solved_no = parseInt(solved_no);
+
+  if (difficulty !== undefined) {
+    if (!['beginner', 'intermediate'].includes(difficulty)) {
+      return res.status(400).json(new ApiResponse(400, null, "Difficulty must be 'beginner' or 'intermediate'"));
+    }
+    updateData.difficulty = difficulty;
+  }
+
+  // Check for duplicate email
+  if (email) {
+    const dupEmail = await User.findOne({ email, _id: { $ne: id } });
+    if (dupEmail) {
+      return res.status(400).json(new ApiResponse(400, null, "Email already in use"));
+    }
+  }
+
+  // Check for duplicate team name
+  if (team_name) {
+    const dupTeam = await User.findOne({ team_name, _id: { $ne: id } });
+    if (dupTeam) {
+      return res.status(400).json(new ApiResponse(400, null, "Team name already in use"));
+    }
+  }
+
+  const user = await User.findByIdAndUpdate(id, updateData, { new: true }).select('-password');
+  if (!user) {
+    return res.status(404).json(new ApiResponse(404, null, "User not found"));
+  }
+  res.status(200).json(new ApiResponse(200, user, "User updated"));
+});
+
+const deleteUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const user = await User.findById(id);
+  if (!user) {
+    return res.status(404).json(new ApiResponse(404, null, "User not found"));
+  }
+  if (user.field === 'admin') {
+    return res.status(400).json(new ApiResponse(400, null, "Cannot delete admin accounts"));
+  }
+
+  await User.findByIdAndDelete(id);
+  res.status(200).json(new ApiResponse(200, { id }, "User deleted"));
+});
+
+const resetUserScore = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const user = await User.findByIdAndUpdate(
+    id,
+    { point: 0, solved_no: 0 },
+    { new: true }
+  ).select('-password');
+
+  if (!user) {
+    return res.status(404).json(new ApiResponse(404, null, "User not found"));
+  }
+  res.status(200).json(new ApiResponse(200, user, "User score reset"));
+});
 
 module.exports = {
   getCategories,
@@ -195,4 +301,9 @@ module.exports = {
   updateQuestion,
   deleteQuestion,
   isAdmin,
+  getUsers,
+  getUserById,
+  updateUser,
+  deleteUser,
+  resetUserScore,
 };

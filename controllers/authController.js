@@ -1,21 +1,21 @@
 const User = require('../models/user');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { getDifficultyFromExcel } = require('../utils/registrationService');
+const { getDifficultyFromExcel, appendRegistrationToExcel } = require('../utils/registrationService');
 
 // Helper: Generate JWT
-
 const generateAccessToken = (user) => {
 	return jwt.sign(
-		{ id: user._id, email: user.email, team_name: user.team_name, field: user.field ,difficulty : user.difficulty},
+		{ id: user._id, email: user.email, team_name: user.team_name, field: user.field, difficulty: user.difficulty },
 		process.env.JWT_SECRET,
 		{ expiresIn: '1d' }
 	);
 };
-// Signup (all fields required, difficulty auto-assigned)
+
+// Signup (all fields required, difficulty selected or auto-assigned)
 exports.signup = async (req, res) => {
 	try {
-		const { email, team_name, password, year } = req.body;
+		const { email, team_name, password, year, difficulty: inputDifficulty } = req.body;
 		
 		// Validate required fields
 		if (!email || !team_name || !password || !year) {
@@ -32,15 +32,14 @@ exports.signup = async (req, res) => {
 			return res.status(400).json({ message: 'Year must be 1, 2, 3, or 4.' });
 		}
 		
-		// 🔥 Get difficulty from Excel based on roll number
-		let difficulty;
-		try {
-			difficulty = getDifficultyFromExcel(email);
-		} catch (error) {
-			return res.status(403).json({ 
-				message: error.message,
-				hint: 'Please complete the registration form first before signing up.'
-			});
+		// Assign difficulty from user selection or Excel lookup
+		let difficulty = inputDifficulty;
+		if (difficulty && !['beginner', 'intermediate'].includes(difficulty)) {
+			return res.status(400).json({ message: "Difficulty must be 'beginner' or 'intermediate'." });
+		}
+
+		if (!difficulty) {
+			difficulty = getDifficultyFromExcel(email) || 'beginner';
 		}
 		
 		// Check if email already exists
@@ -58,17 +57,26 @@ exports.signup = async (req, res) => {
 		// Hash password
 		const hash = await bcrypt.hash(password, 10);
 		
-		// Create user with auto-assigned difficulty
+		// Create user with difficulty
 		const user = new User({
 			email,
 			team_name,
 			password: hash,
 			year: parseInt(year),
-			difficulty, // Auto-assigned based on registration
+			difficulty,
 			field: 'user'
 		});
 		
 		await user.save();
+
+		// Append new registration to Registration.xlsx
+		appendRegistrationToExcel({
+			email,
+			team_name,
+			year: parseInt(year),
+			difficulty
+		});
+
 		const accessToken = generateAccessToken(user);
 		
 		// Set cookie
@@ -89,7 +97,7 @@ exports.signup = async (req, res) => {
 				difficulty, 
 				field: user.field 
 			},
-			info: `You have been assigned to ${difficulty} difficulty level based on your year and experience.`
+			info: `You are registered in the ${difficulty} league.`
 		});
 	} catch (err) {
 		// Handle MongoDB duplicate key error
@@ -104,7 +112,6 @@ exports.signup = async (req, res) => {
 		return res.status(500).json({ message: err.message || 'Signup failed. Please try again.' });
 	}
 };
-
 
 // Login
 exports.login = async (req, res) => {
@@ -124,11 +131,11 @@ exports.login = async (req, res) => {
 		const accessToken = generateAccessToken(user);
 		// Set cookie
 		res.cookie('jwt', accessToken, { 
-  httpOnly: true,
-  secure: true,
-  sameSite: 'none',
-  maxAge: 1 * 24 * 60 * 60 * 1000 
-});
+			httpOnly: true,
+			secure: true,
+			sameSite: 'none',
+			maxAge: 1 * 24 * 60 * 60 * 1000 
+		});
 		res.status(200).json({ 
 			message: 'Login successful!', 
 			token: accessToken,
@@ -139,13 +146,13 @@ exports.login = async (req, res) => {
 	}
 };
 
-
 // Logout: clear cookies
 exports.logout = async (req, res) => {
-	res.clearCookie('jwt', { httpOnly: true,secure: true,
-  sameSite:'none',
-  maxAge: 1 * 24 * 60 * 60 * 1000 });
+	res.clearCookie('jwt', { 
+		httpOnly: true,
+		secure: true,
+		sameSite: 'none',
+		maxAge: 1 * 24 * 60 * 60 * 1000 
+	});
 	res.status(200).json({ message: 'Logged out successfully. Please remove the token from your storage.' });
 };
-
-
