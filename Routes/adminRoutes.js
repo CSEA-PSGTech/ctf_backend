@@ -189,7 +189,6 @@ router.get('/questions', verifyToken, isAdmin, adminController.getQuestions);
  *               - description
  *               - answer
  *               - point
- *               - year
  *               - difficulty
  *             properties:
  *               category:
@@ -207,9 +206,6 @@ router.get('/questions', verifyToken, isAdmin, adminController.getQuestions);
  *               point:
  *                 type: number
  *                 example: 100
- *               year:
- *                 type: number
- *                 example: 3
  *               difficulty:
  *                 type: string
  *                 enum: [beginner, intermediate]
