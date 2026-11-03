@@ -97,10 +97,10 @@ const getQuestions = asyncHandler(async (req, res) => {
 const createQuestion = asyncHandler(async (req, res) => {
   const { category, title, description, hint, answer, point, year, level, difficulty } = req.body;
 
-  if (!category || !title || !description || !answer || !point || !year) {
+  if (!category || !title || !description || !answer || !point) {
     return res.status(400).json({
       statusCode: 400,
-      message: "All fields are required (category, title, description, answer, point, year)",
+      message: "All fields are required (category, title, description, answer, point)",
       success: false
     });
   }

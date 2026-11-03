@@ -14,7 +14,7 @@ const questionSchema = new mongoose.Schema({
   },
   year: {
     type: Number,
-    required: true
+    required: false
   },
   description: {
     type: String,
@@ -60,7 +60,6 @@ const questionSchema = new mongoose.Schema({
 
 // Index for better query performance
 questionSchema.index({ categoryId: 1 });
-questionSchema.index({ year: 1 });
 questionSchema.index({ point: 1 });
 questionSchema.index({ solved_count: -1 }); // For popular questions queries
 
